@@ -1,0 +1,224 @@
+// ============================================================================
+// Logistics RAG — Mixture-of-Experts Agentic Architecture
+// Render: dot -Tpng architecture.dot -o architecture.png
+//         dot -Tsvg architecture.dot -o architecture.svg
+// ============================================================================
+digraph LogisticsRAG {
+
+    rankdir=TB;
+    fontname="Helvetica";
+    node [fontname="Helvetica", fontsize=11, style=filled, shape=box, color="#333333"];
+    edge [fontname="Helvetica", fontsize=9, color="#555555"];
+    compound=true;
+    newrank=true;
+    splines=polyline;
+    nodesep=0.6;
+    ranksep=0.8;
+
+    // ========================================================================
+    // 1. CLIENT LAYER
+    // ========================================================================
+    subgraph cluster_client {
+        label="Client Layer (React / Next.js)";
+        style=filled; fillcolor="#E8F0FE"; color="#4285F4";
+        fontsize=13; fontcolor="#1A237E";
+
+        web_ui      [label="Dashboard UI\n(React + TailwindCSS)", fillcolor="#BBDEFB"];
+        auth_gate   [label="Auth Gate\n(JWT / OAuth2)", fillcolor="#BBDEFB"];
+        chat_iface  [label="Chat / Query\nInterface", fillcolor="#BBDEFB"];
+        upload_iface[label="Document &\nImage Upload", fillcolor="#BBDEFB"];
+    }
+
+    // ========================================================================
+    // 2. AUTH / SESSION LAYER
+    // ========================================================================
+    subgraph cluster_auth {
+        label="Authentication & Session Management";
+        style=filled; fillcolor="#FFF3E0"; color="#FB8C00";
+        fontsize=13; fontcolor="#E65100";
+
+        auth_server [label="Auth Server\n(NextAuth.js / Keycloak)", fillcolor="#FFE0B2"];
+        token_store [label="Token Store\n(Redis / DB)", fillcolor="#FFE0B2"];
+        rbac        [label="RBAC / Scopes\n(role-based access)", fillcolor="#FFE0B2"];
+    }
+
+    // ========================================================================
+    // 3. API GATEWAY / ORCHESTRATOR
+    // ========================================================================
+    subgraph cluster_api {
+        label="API Server & Agent Orchestrator";
+        style=filled; fillcolor="#E8F5E9"; color="#43A047";
+        fontsize=13; fontcolor="#1B5E20";
+
+        api_gw      [label="API Gateway\n(FastAPI / Express)", fillcolor="#C8E6C9"];
+        router      [label="MoE Router\n(Task Classifier)", fillcolor="#C8E6C9"];
+        queue       [label="Task Queue\n(Celery / BullMQ)", fillcolor="#C8E6C9"];
+        openclaw_rt [label="OpenClaw Runtime\n(NemoClaw / OpenShell)", fillcolor="#A5D6A7", shape=doubleoctagon];
+    }
+
+    // ========================================================================
+    // 4. MIXTURE OF EXPERTS  (3-6 specialist agents / "claws")
+    // ========================================================================
+    subgraph cluster_moe {
+        label="Mixture of Experts — Specialist Agents (Claws)";
+        style=filled; fillcolor="#F3E5F5"; color="#8E24AA";
+        fontsize=13; fontcolor="#4A148C";
+
+        expert_ocr       [label="Expert 1: OCR Agent\n(GOT-OCR2 / Surya /\nDocTR / PaddleOCR)", fillcolor="#E1BEE7"];
+        expert_objdet    [label="Expert 2: Object Detection\n(OWLv2 / Grounding DINO /\nYOLOWorld)", fillcolor="#E1BEE7"];
+        expert_multimodal[label="Expert 3: Multi-Modal\nReasoning (Qwen2.5-VL /\nLLaVA-NeXT / Phi-3.5-V)", fillcolor="#E1BEE7"];
+        expert_pipeline  [label="Expert 4: Data Pipeline\n(PDF→CSV/JSON→Embed)\n(Unstructured.io / LlamaParse)", fillcolor="#E1BEE7"];
+        expert_rag       [label="Expert 5: RAG / Retrieval\n(Semantic Search +\nReranker Agent)", fillcolor="#E1BEE7"];
+        expert_analytics [label="Expert 6: Analytics &\nReporting (SQL Agent /\nPandas / Plotly)", fillcolor="#E1BEE7"];
+    }
+
+    // ========================================================================
+    // 5. MODEL SERVING / INFERENCE LAYER
+    // ========================================================================
+    subgraph cluster_inference {
+        label="Local Model Serving & Inference";
+        style=filled; fillcolor="#FFF9C4"; color="#F9A825";
+        fontsize=13; fontcolor="#F57F17";
+
+        vllm        [label="vLLM / TRT-LLM\nServing Engine", fillcolor="#FFF59D"];
+        nemotron    [label="Nemotron-3 Nano\n30B-A3B (MoE)\nCentral Reasoning LLM", fillcolor="#FFF59D", shape=doubleoctagon];
+        embed_model [label="Embedding Model\n(NV-Embed-v2 /\nBGE-M3 / E5-Mistral)", fillcolor="#FFF59D"];
+        reranker    [label="Reranker\n(NV-RerankQA /\nBGE-Reranker-v2)", fillcolor="#FFF59D"];
+        vision_srv  [label="Vision Model Server\n(Triton Inference)", fillcolor="#FFF59D"];
+    }
+
+    // ========================================================================
+    // 6. VECTOR DATABASE & STORAGE
+    // ========================================================================
+    subgraph cluster_storage {
+        label="Vector DB & Data Storage";
+        style=filled; fillcolor="#FFEBEE"; color="#E53935";
+        fontsize=13; fontcolor="#B71C1C";
+
+        vector_db   [label="Vector Database\n(Milvus / Qdrant /\nPgVector)", fillcolor="#FFCDD2"];
+        doc_store   [label="Document Store\n(MongoDB / S3)", fillcolor="#FFCDD2"];
+        metadata_db [label="Metadata / Relational DB\n(PostgreSQL)", fillcolor="#FFCDD2"];
+        cache       [label="Semantic Cache\n(Redis + Embedding)", fillcolor="#FFCDD2"];
+    }
+
+    // ========================================================================
+    // 7. DATA INGESTION PIPELINE
+    // ========================================================================
+    subgraph cluster_ingest {
+        label="Data Ingestion Pipeline (30M+ tokens)";
+        style=filled; fillcolor="#E0F7FA"; color="#00ACC1";
+        fontsize=13; fontcolor="#006064";
+
+        raw_data    [label="Raw Customer Data\n(PDFs, Images,\nCSV, JSON)", fillcolor="#B2EBF2"];
+        parser      [label="Document Parser\n(Unstructured / Docling /\nLlamaParse)", fillcolor="#B2EBF2"];
+        chunker     [label="Chunker\n(Semantic / Recursive\nText Splitter)", fillcolor="#B2EBF2"];
+        embedder    [label="Embedding Generator\n(batch pipeline)", fillcolor="#B2EBF2"];
+        validator   [label="Quality Validator\n(dedup, schema check)", fillcolor="#B2EBF2"];
+    }
+
+    // ========================================================================
+    // 8. OPENCLAW / NEMOCLAW WORKFLOW LAYER
+    // ========================================================================
+    subgraph cluster_openclaw {
+        label="OpenClaw / NemoClaw Agentic Workflow Layer";
+        style=filled; fillcolor="#F1F8E9"; color="#7CB342";
+        fontsize=13; fontcolor="#33691E";
+
+        skill_registry [label="Skill Registry\n(SKILL.md per agent)", fillcolor="#DCEDC8"];
+        claw_scheduler [label="Claw Scheduler\n(always-on / event-driven)", fillcolor="#DCEDC8"];
+        privacy_router [label="Privacy Router\n(local ↔ cloud policy)", fillcolor="#DCEDC8"];
+        guardrails     [label="NeMo Guardrails\n(input/output filtering)", fillcolor="#DCEDC8"];
+        sandbox        [label="OpenShell Sandbox\n(isolated execution)", fillcolor="#DCEDC8"];
+    }
+
+    // ========================================================================
+    // 9. MONITORING / OBSERVABILITY
+    // ========================================================================
+    subgraph cluster_ops {
+        label="Observability & Ops";
+        style=filled; fillcolor="#ECEFF1"; color="#607D8B";
+        fontsize=13; fontcolor="#263238";
+
+        logging     [label="Logging\n(ELK / Loki)", fillcolor="#CFD8DC"];
+        tracing     [label="Tracing\n(OpenTelemetry)", fillcolor="#CFD8DC"];
+        monitoring  [label="Metrics\n(Prometheus / Grafana)", fillcolor="#CFD8DC"];
+    }
+
+    // ========================================================================
+    // EDGES — Client → Auth
+    // ========================================================================
+    web_ui       -> auth_gate;
+    auth_gate    -> auth_server [xlabel="verify"];
+    auth_server  -> token_store [xlabel="issue/revoke JWT"];
+    auth_server  -> rbac;
+    chat_iface   -> api_gw [xlabel="authenticated\nrequest"];
+    upload_iface -> api_gw [xlabel="authenticated\nupload"];
+
+    // ========================================================================
+    // EDGES — API → Router → Experts
+    // ========================================================================
+    api_gw      -> router [xlabel="classify task"];
+    router      -> queue  [xlabel="enqueue"];
+    router      -> openclaw_rt [xlabel="delegate\nto claw"];
+
+    queue       -> expert_ocr;
+    queue       -> expert_objdet;
+    queue       -> expert_multimodal;
+    queue       -> expert_pipeline;
+    queue       -> expert_rag;
+    queue       -> expert_analytics;
+
+    // ========================================================================
+    // EDGES — Experts → Inference
+    // ========================================================================
+    expert_ocr        -> vision_srv [xlabel="OCR inference"];
+    expert_objdet     -> vision_srv [xlabel="detection\ninference"];
+    expert_multimodal -> vision_srv [xlabel="VLM\ninference"];
+    expert_multimodal -> nemotron   [xlabel="reasoning"];
+    expert_pipeline   -> embed_model [xlabel="embed chunks"];
+    expert_rag        -> embed_model [xlabel="query embed"];
+    expert_rag        -> reranker    [xlabel="rerank"];
+    expert_rag        -> nemotron    [xlabel="generate\nanswer"];
+    expert_analytics  -> nemotron    [xlabel="SQL / code\ngeneration"];
+
+    nemotron    -> vllm [xlabel="served via"];
+    embed_model -> vllm [xlabel="served via"];
+
+    // ========================================================================
+    // EDGES — Inference → Storage
+    // ========================================================================
+    expert_rag      -> vector_db  [xlabel="similarity\nsearch"];
+    expert_rag      -> cache      [xlabel="cache hit?"];
+    expert_pipeline -> vector_db  [xlabel="upsert\nembeddings"];
+    expert_pipeline -> doc_store  [xlabel="store parsed\ndocuments"];
+    expert_analytics-> metadata_db[xlabel="query\nmetadata"];
+
+    // ========================================================================
+    // EDGES — Ingestion Pipeline
+    // ========================================================================
+    raw_data  -> parser   [xlabel="ingest"];
+    parser    -> chunker  [xlabel="structured\noutput"];
+    chunker   -> embedder [xlabel="chunks"];
+    embedder  -> validator[xlabel="vectors"];
+    validator -> vector_db [xlabel="upsert"];
+    validator -> doc_store [xlabel="store raw"];
+
+    // ========================================================================
+    // EDGES — OpenClaw / NemoClaw Workflow
+    // ========================================================================
+    openclaw_rt     -> skill_registry [xlabel="load skills"];
+    openclaw_rt     -> claw_scheduler [xlabel="schedule\ntasks"];
+    openclaw_rt     -> privacy_router [xlabel="route model\ncalls"];
+    privacy_router  -> nemotron       [xlabel="local model"];
+    privacy_router  -> guardrails     [xlabel="apply\nguardrails"];
+    openclaw_rt     -> sandbox        [xlabel="execute in\nsandbox"];
+    guardrails      -> api_gw         [xlabel="filtered\nI/O", style=dashed];
+
+    // ========================================================================
+    // EDGES — Observability
+    // ========================================================================
+    api_gw   -> logging   [style=dashed, color="#90A4AE"];
+    api_gw   -> tracing   [style=dashed, color="#90A4AE"];
+    api_gw   -> monitoring[style=dashed, color="#90A4AE"];
+    vllm     -> monitoring[style=dashed, color="#90A4AE"];
+}
