@@ -7,6 +7,13 @@ A **locally-hosted RAG system** for a logistics/shipping client, built around a
 ("claws"), a semantic-search vector database, fine-tuned central reasoning model,
 and a React/Next.js front-end with JWT-based authentication.
 
+The system extends to the **physical sorting space** via a **Jetson Orin AGX**
+development board running NanoOWL for real-time zero-shot object detection on a
+conveyor belt, barcode scanning with confidence gating, and three PTZ cameras
+orchestrated through a **Media over QUIC (MOQ)** gateway. Warehouse managers
+interact through a dedicated **HMI verification frontend** running as an on-edge
+PWA.
+
 Current customer data footprint: **~30 million tokens**.
 
 ---
@@ -32,6 +39,9 @@ Current customer data footprint: **~30 million tokens**.
 | 7 | **Ingestion Pipeline** | Unstructured.io / LlamaParse, semantic chunker, batch embedder |
 | 8 | **OpenClaw/NemoClaw** | Skill registry, privacy router, NeMo Guardrails, OpenShell sandbox |
 | 9 | **Observability** | OpenTelemetry, Prometheus/Grafana, ELK/Loki |
+| 10 | **Jetson Orin AGX Edge** | NanoOWL (OWL-ViT + TensorRT), barcode OCR, vLLM Marlin GPTQ |
+| 11 | **MOQ Gateway** | Media over QUIC server, PTZ controller, stream multiplexer |
+| 12 | **HMI** | Warehouse manager verification dashboard (React PWA, on-edge) |
 
 ---
 
@@ -74,6 +84,8 @@ Current customer data footprint: **~30 million tokens**.
 | **Florence-2** | 230M–770M | Microsoft; unified vision model; detection + captioning + OCR | Larger footprint; overkill for detection-only | MIT | Combined detection + captioning tasks |
 
 **Recommendation:** **Grounding DINO** for highest accuracy on novel cargo categories (damage, label reading). **YOLO-World** as a real-time fallback for warehouse conveyor-belt scenarios where latency < 50ms is required.
+
+**Edge (Jetson Orin AGX):** **NanoOWL** — TensorRT-optimized OWL-ViT running real-time on Jetson Orin via `nanoowl.build_image_encoder_engine`. Supports tree prediction (nested detection + CLIP classification) for hierarchical cargo taxonomy (e.g., `[a package [a barcode, a shipping label, damage]]`).
 
 ---
 
@@ -118,6 +130,15 @@ Current customer data footprint: **~30 million tokens**.
 
 ## 5. OpenClaw / NemoClaw Integration
 
+### 5.1 What is OpenClaw?
+
+OpenClaw is the fastest-growing open-source autonomous AI agent platform
+(247k+ GitHub stars as of March 2026). It runs **locally** and integrates with
+LLMs to perform autonomous workflows via a **skills system** (each skill is a
+directory with a `SKILL.md` file defining metadata and tool-use instructions).
+
+### 5.2 What is NemoClaw?
+
 **NVIDIA NemoClaw** is the enterprise-grade stack for OpenClaw that adds:
 
 - **NVIDIA OpenShell** runtime — isolated sandbox for secure agent execution
@@ -126,7 +147,7 @@ Current customer data footprint: **~30 million tokens**.
 - **NeMo Guardrails** — input/output filtering for safety and compliance
 - **Always-on agents** — dedicated compute on RTX/DGX hardware
 
-### 5.1 Proposed OpenClaw Workflow for This Project
+### 5.3 Proposed OpenClaw Workflow for This Project
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -163,7 +184,7 @@ Current customer data footprint: **~30 million tokens**.
 └──────────────────────────────────────────────────────────┘
 ```
 
-### 5.2 Skill Definitions (Example)
+### 5.4 Skill Definitions (Example)
 
 Each expert maps to an OpenClaw **Skill** directory:
 
@@ -179,11 +200,17 @@ skills/
 │   └── SKILL.md          # PDF→CSV/JSON→Embed pipeline
 ├── rag-retrieval/
 │   └── SKILL.md          # Vector search + reranking
-└── analytics/
-    └── SKILL.md          # SQL generation + dashboarding
+├── analytics/
+│   └── SKILL.md          # SQL generation + dashboarding
+├── edge-barcode/
+│   └── SKILL.md          # Jetson barcode scanning + confidence gating
+├── edge-ptz/
+│   └── SKILL.md          # Camera PTZ orchestration via MOQ
+└── hmi-verification/
+    └── SKILL.md          # Warehouse manager override workflow
 ```
 
-### 5.3 NemoClaw Deployment Flow
+### 5.5 NemoClaw Deployment Flow
 
 ```
 1. Install NemoClaw (single command)
@@ -204,6 +231,7 @@ skills/
    └─► Nightly: batch ingest new shipping docs
    └─► Hourly: monitor for anomaly alerts
    └─► On-demand: user queries via chat interface
+   └─► Continuous: Jetson edge detection pipeline
 ```
 
 ---
@@ -239,10 +267,11 @@ skills/
 
 | Tier | Hardware | Capacity |
 |------|----------|----------|
-| **Dev/POC** | 2× RTX 3090 (48GB) | Nemotron Nano FP8 + 1 vision model | [https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16](https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16)
+| **Dev/POC** | 1× RTX 4090 (24GB) | Nemotron Nano FP8 + 1 vision model |
 | **Production (Minimum)** | 1× A100 80GB or 2× RTX 6000 Ada | All experts concurrently |
 | **Production (Recommended)** | DGX Station / 4× A100 | Full stack + fine-tuning headroom |
 | **Enterprise** | DGX Spark / DGX H100 | Multi-tenant, always-on claws |
+| **Edge (Sorting Space)** | Jetson Orin AGX 64GB | NanoOWL + vLLM Marlin GPTQ + 3 cameras |
 
 ---
 
@@ -301,6 +330,13 @@ skills/
       │ embeddings + │ │ raw docs + │  │ lineage, audit,  │
       │ metadata     │ │ parsed out │  │ schema, stats    │
       └──────────────┘ └────────────┘  └──────────────────┘
+              ▲                                   ▲
+              │         EDGE INGESTION            │
+      ┌───────┴──────────────────────────────┬────┘
+      │  Jetson Orin AGX → Edge Buffer       │
+      │  barcode scans, detection artifacts  │
+      │  → upsert embeddings + metadata      │
+      └──────────────────────────────────────┘
 ```
 
 ---
@@ -329,11 +365,371 @@ Client (Next.js)
               ├──► Verify JWT + upload scope
               ├──► Stream to ingestion pipeline
               └──► Return processing status
+
+HMI (Warehouse Manager)
+    │
+    ├──► Badge / PIN / Biometric ──► Auth Server
+    │         │
+    │         ├──► Validate against employee directory
+    │         ├──► Issue scoped HMI token (verify-only)
+    │         └──► Restrict to verification + override actions
+    │
+    └──► /hmi/verify ──► API Gateway
+              │
+              ├──► Verify HMI token + verify scope
+              ├──► Log decision to audit trail
+              └──► Persist to metadata DB
 ```
 
 ---
 
-## 9. Estimated Resource Requirements
+## 9. Jetson Orin AGX — On-Premise Edge Detection System
+
+### 9.1 Overview
+
+A **Jetson Orin AGX 64GB** development board deployed in the sorting space
+(conveyor belt area) serves as the on-premise edge detection and barcode
+scanning station. Three cameras are attached to the board, each covering a
+different segment of the conveyor belt:
+
+| Camera | Position | Primary Task |
+|--------|----------|-------------|
+| **Camera 1** | Conveyor Inlet | Package arrival detection, initial label read |
+| **Camera 2** | Barcode Station | High-accuracy barcode/label scanning |
+| **Camera 3** | Sorting Outlet | Post-sort verification, damage check |
+
+### 9.2 NanoOWL — Real-Time Zero-Shot Detection
+
+**NanoOWL** optimizes OWL-ViT to run real-time on Jetson Orin using TensorRT:
+
+- **Engine build:** `python3 -m nanoowl.build_image_encoder_engine data/owl_image_encoder_patch32.engine`
+- **Tree prediction:** Hierarchical detection + CLIP classification
+  - Example prompt: `[a package [a barcode, a shipping label, damage, tape tear]]`
+  - Nested output enables simultaneous detection and categorization
+- **Performance:** Real-time on Jetson Orin Nano (even faster on AGX 64GB)
+- **Integration:** Results feed into the confidence gate, then to the central RAG pipeline
+
+### 9.3 vLLM with Marlin GPTQ on Jetson Orin
+
+**Problem:** Official vLLM wheels ship Marlin kernels for SM 8.0, 8.6, 8.9, 9.0 — but **not SM 8.7** (Jetson Orin's compute capability). Without SM 8.7 support, `--quantization gptq_marlin` falls back to generic CUDA core kernels, leaving Orin's tensor cores idle.
+
+**Solution:** Pre-built vLLM 0.17.0 wheel from `thehighnotes/vllm-jetson-orin` includes:
+- Marlin GPTQ kernels compiled for SM 8.7
+- Fused INT4 dequantization + FP16 tensor core matrix multiply
+- Scheduler fast-path patch for single-user decode
+- Tested with **Qwen3.5-35B-A3B-GPTQ-Int4** (35B params, 3.5B active via MoE)
+
+**Edge LLM usage:** On-device reasoning for:
+- Low-confidence barcode interpretation ("is this a UPC-A or Code 128?")
+- Contextual decision-making when the confidence gate flags ambiguity
+- Generating structured JSON for barcode scan results before sync to central RAG
+
+```bash
+# Install on Jetson Orin AGX
+python3 -m venv ~/vllm-venv && source ~/vllm-venv/bin/activate
+pip install torch --index-url https://pypi.jetson-ai-lab.io/jp6/cu126
+pip install https://huggingface.co/thehighnotes/vllm-jetson-orin/resolve/main/vllm-0.17.0+cu126-cp310-cp310-linux_aarch64.whl
+pip install triton
+
+# Serve model
+vllm serve Qwen/Qwen3.5-35B-A3B-GPTQ-Int4 \
+  --host 0.0.0.0 --port 8000 \
+  --quantization gptq_marlin \
+  --dtype half \
+  --gpu-memory-utilization 0.8 \
+  --max-model-len 4096 \
+  --max-num-seqs 1
+```
+
+### 9.4 Considerations for RAG Pipeline Integration
+
+#### 9.4.1 Security Hardening
+
+| Layer | Measure | Detail |
+|-------|---------|--------|
+| **Network** | mTLS | All Jetson ↔ central server traffic encrypted with mutual TLS |
+| **Network** | VLAN isolation | Jetson on dedicated OT network segment, firewall-restricted |
+| **Firmware** | Secure boot + attestation | Jetson Orin supports hardware-backed secure boot chain |
+| **API** | Token-scoped access | Edge device gets a machine-to-machine JWT with minimal scopes |
+| **Data at rest** | LUKS encryption | On-device edge buffer encrypted |
+| **Updates** | OTA with signature verification | Model and firmware updates signed + verified before apply |
+| **Physical** | Tamper detection | Enclosure with tamper-evident seals in sorting space |
+
+#### 9.4.2 Confidence Threshold & Position Variability
+
+Packages on a conveyor belt present **position variability challenges** — barcodes
+may be occluded, rotated, crumpled, or partially visible.
+
+```
+┌──────────────────────────────────────────────────────┐
+│              CONFIDENCE GATING PIPELINE               │
+│                                                       │
+│  Camera Frame                                         │
+│       │                                               │
+│       ▼                                               │
+│  ┌─────────────┐                                      │
+│  │ NanoOWL     │ → detection_score (0.0–1.0)          │
+│  │ Detection   │ → bounding_box coordinates           │
+│  └──────┬──────┘                                      │
+│         │                                             │
+│         ▼                                             │
+│  ┌─────────────┐                                      │
+│  │ Barcode OCR │ → ocr_confidence (0.0–1.0)           │
+│  │ (ZBar/      │ → decoded_value                      │
+│  │  PaddleOCR) │ → barcode_type (UPC/Code128/QR)      │
+│  └──────┬──────┘                                      │
+│         │                                             │
+│         ▼                                             │
+│  ┌──────────────────────────────────────┐             │
+│  │         CONFIDENCE GATE              │             │
+│  │                                      │             │
+│  │  HIGH (≥ 0.85):                      │             │
+│  │   → auto-accept, sync to RAG        │             │
+│  │                                      │             │
+│  │  MEDIUM (0.55–0.84):                 │             │
+│  │   → vLLM edge reasoning (Marlin)    │             │
+│  │   → re-scan with PTZ adjustment     │             │
+│  │   → if still medium → flag for HMI  │             │
+│  │                                      │             │
+│  │  LOW (< 0.55):                       │             │
+│  │   → flag for manual HMI review      │             │
+│  │   → PTZ auto-adjust + retry (1x)    │             │
+│  │   → capture multi-angle frames      │             │
+│  └──────────────────────────────────────┘             │
+│                                                       │
+│  Position Variability Mitigations:                    │
+│   • Multi-angle capture via PTZ (3 positions)         │
+│   • Temporal averaging (3-frame sliding window)       │
+│   • Barcode region proposal → crop → re-OCR           │
+│   • NanoOWL tree prompt with fallback labels:          │
+│     [a package [a barcode, a QR code, a shipping      │
+│      label, (readable, partially occluded, damaged)]] │
+└──────────────────────────────────────────────────────┘
+```
+
+#### 9.4.3 Matching Against the Scraped Dataset
+
+Edge detections are matched against the existing 30M-token scraped dataset:
+
+1. **Barcode → Shipment ID lookup** — decoded barcode value queries the
+   metadata DB for matching shipment records
+2. **Embedding similarity** — detection context (label text, package
+   description from VLM) is embedded on-edge and compared against the vector DB
+3. **Fuzzy match** — for partial/damaged barcodes, the RAG retrieval expert
+   runs a fuzzy search (Levenshtein distance + embedding similarity) against
+   known shipment IDs
+4. **Reconciliation** — mismatches trigger an alert on the HMI panel for
+   warehouse manager review
+
+#### 9.4.4 Integrating OCR/OCI Data into the Frontend
+
+```
+Jetson Orin AGX                    Central Server                Frontend
+─────────────────                  ──────────────                ────────
+Barcode OCR result ──┐
+NanoOWL detections ──┤
+vLLM edge reasoning ─┘
+        │
+        ▼
+  Edge Buffer (local)
+        │
+        ├──► REST/gRPC ──► API Gateway ──► Expert 4 (Pipeline)
+        │                      │              │
+        │                      │         Parse + embed
+        │                      │              │
+        │                      ▼              ▼
+        │                 Vector DB      Doc Store
+        │                      │              │
+        │                      └──────┬───────┘
+        │                             │
+        │                       Expert 5 (RAG)
+        │                             │
+        │                             ▼
+        │                      Structured JSON
+        │                             │
+        │                             ▼
+        └──────────────────► WebSocket / SSE ──► Next.js Dashboard
+                                                      │
+                                                 ┌────┴────┐
+                                                 │ Live    │
+                                                 │ Scan    │
+                                                 │ Results │
+                                                 │ Table   │
+                                                 └─────────┘
+```
+
+Data surfaced in the frontend:
+- **Real-time scan feed** — live barcode results with confidence scores
+- **Detection thumbnails** — cropped images from NanoOWL with bounding boxes
+- **Match status** — green (matched), yellow (fuzzy match), red (no match)
+- **Exception queue** — items flagged for manual review (low confidence / no match)
+- **Historical analytics** — scan throughput, error rate, match rate over time
+
+---
+
+## 10. MOQ Gateway — Camera Orchestration & PTZ Control
+
+### 10.1 Media over QUIC (MOQ) Architecture
+
+**MOQ** (Media over QUIC) replaces traditional RTSP/HLS for camera streaming
+with sub-250ms latency over HTTP/3 and WebTransport:
+
+| Feature | RTSP | HLS/DASH | **MOQ** |
+|---------|------|----------|---------|
+| Latency | ~200ms | 2-10s | **<250ms** |
+| NAT traversal | Poor | Good | **Excellent** |
+| Browser native | No | Yes | **Yes (WebTransport)** |
+| Scalability | 1:1 | CDN | **Relay-based** |
+| Bi-directional | No | No | **Yes** |
+
+### 10.2 Three-Camera PTZ Orchestration
+
+The three cameras attached to the Jetson Orin AGX board are orchestrated by
+OpenClaw agents via the MOQ server:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                MOQ Gateway Architecture                      │
+│                                                              │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐                   │
+│  │ Camera 1 │  │ Camera 2 │  │ Camera 3 │                   │
+│  │ (Inlet)  │  │ (Barcode)│  │ (Outlet) │                   │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘                   │
+│       │              │              │                         │
+│       └──────────────┼──────────────┘                         │
+│                      │                                        │
+│               Stream Multiplexer                              │
+│            (WebTransport / HTTP/3)                             │
+│                      │                                        │
+│                      ▼                                        │
+│              ┌──────────────┐                                 │
+│              │  MOQ Server  │◄──── OpenClaw Agent             │
+│              │  (QUIC)      │      (PTZ orchestration skill)  │
+│              └──────┬───────┘                                 │
+│                     │                                         │
+│            ┌────────┼────────┐                                │
+│            ▼        ▼        ▼                                │
+│     ┌──────────┐ ┌────┐ ┌──────────┐                         │
+│     │PTZ Ctrl 1│ │ 2  │ │PTZ Ctrl 3│                         │
+│     └──────────┘ └────┘ └──────────┘                         │
+│                     │                                         │
+│            ┌────────┼────────┐                                │
+│            ▼        ▼        ▼                                │
+│     ┌────────────────────────────┐                            │
+│     │  Simulation Bridge          │                           │
+│     │  NanoOWL detection coords   │                           │
+│     │  → PTZ auto-tracking        │                           │
+│     │  → calibration offsets      │                           │
+│     └────────────────────────────┘                            │
+│                                                               │
+│  Agent-driven PTZ commands:                                   │
+│   • "Track barcode region" → pan/tilt to detection bbox       │
+│   • "Zoom on damage area" → zoom to NanoOWL anomaly region    │
+│   • "Multi-angle capture" → sequence: home→left→right→home    │
+│   • "Calibrate" → run sim-derived offset correction           │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 10.3 Simulation → Production Bridge
+
+NanoOWL simulation data (from dev/lab testing) feeds into PTZ calibration:
+
+1. **Sim data capture** — run NanoOWL tree prediction on simulated conveyor
+   belt footage, recording detection coordinates + bounding boxes
+2. **Calibration mapping** — map pixel coordinates → PTZ angle offsets for
+   each camera position
+3. **Auto-tracking** — at runtime, when NanoOWL detects a barcode region,
+   the agent sends PTZ commands to center Camera 2 on the barcode for
+   optimal OCR read
+4. **Continuous refinement** — real-world detection coordinates feed back into
+   the calibration model, narrowing the sim-to-real gap
+
+---
+
+## 11. HMI — Warehouse Manager Verification System
+
+### 11.1 Overview
+
+An **on-edge web application** (React PWA) deployed on a ruggedized tablet or
+mounted display near the sorting space. Warehouse managers use it to:
+
+- View **live camera feeds** via MOQ stream
+- See **NanoOWL detection overlays** in real-time
+- **Accept / Reject / Override** barcode scan results flagged by the confidence gate
+- Monitor **exception queues** (low-confidence, no-match, damaged)
+- Review **audit trail** of all decisions for compliance
+
+### 11.2 HMI Frontend Components
+
+```
+┌─────────────────────────────────────────────────────────┐
+│               HMI DASHBOARD (React PWA)                  │
+│                                                          │
+│  ┌─────────────────────────────────────────────────┐     │
+│  │              LIVE CAMERA FEEDS (3x)              │     │
+│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐      │     │
+│  │  │ Cam 1    │  │ Cam 2    │  │ Cam 3    │      │     │
+│  │  │ (inlet)  │  │ (barcode)│  │ (outlet) │      │     │
+│  │  │ [overlays│  │ [overlays│  │ [overlays│      │     │
+│  │  │  on]     │  │  on]     │  │  on]     │      │     │
+│  │  └──────────┘  └──────────┘  └──────────┘      │     │
+│  └─────────────────────────────────────────────────┘     │
+│                                                          │
+│  ┌──────────────────────┐  ┌────────────────────────┐    │
+│  │   SCAN RESULTS       │  │   EXCEPTION QUEUE       │    │
+│  │   ─────────────      │  │   ────────────────      │    │
+│  │   ✅ PKG-40291       │  │   ⚠️ PKG-40295          │    │
+│  │      UPC: matched    │  │     conf: 0.62           │    │
+│  │      conf: 0.97      │  │     barcode: partial     │    │
+│  │                      │  │     [ACCEPT] [REJECT]    │    │
+│  │   ✅ PKG-40292       │  │     [MANUAL ENTRY]       │    │
+│  │      Code128: match  │  │                          │    │
+│  │      conf: 0.94      │  │   🔴 PKG-40296          │    │
+│  │                      │  │     conf: 0.31           │    │
+│  │   ✅ PKG-40293       │  │     barcode: unreadable  │    │
+│  │      QR: matched     │  │     [ACCEPT] [REJECT]    │    │
+│  │      conf: 0.91      │  │     [MANUAL ENTRY]       │    │
+│  └──────────────────────┘  └────────────────────────┘    │
+│                                                          │
+│  ┌──────────────────────────────────────────────────┐    │
+│  │  AUDIT TRAIL                                      │    │
+│  │  ──────────                                       │    │
+│  │  14:32:01  PKG-40295  ACCEPTED (manual)  mgr:JD  │    │
+│  │  14:31:45  PKG-40294  AUTO-ACCEPTED      system   │    │
+│  │  14:31:12  PKG-40293  AUTO-ACCEPTED      system   │    │
+│  └──────────────────────────────────────────────────┘    │
+│                                                          │
+│  ┌─────────┐  ┌───────────┐  ┌──────────────────┐       │
+│  │ 📊 KPIs │  │ ⚙️ Config │  │ 🔒 Lock Screen  │       │
+│  └─────────┘  └───────────┘  └──────────────────┘       │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 11.3 HMI Authentication
+
+| Method | Use Case |
+|--------|----------|
+| **Badge scan (NFC/RFID)** | Primary — quick tap-to-authenticate for floor workers |
+| **PIN** | Fallback — 6-digit PIN for badge failures |
+| **Biometric (optional)** | Fingerprint reader for high-security zones |
+
+The HMI issues a **scoped JWT** with permissions limited to:
+- `hmi:view` — view live feeds and scan results
+- `hmi:verify` — accept/reject flagged scans
+- `hmi:override` — manual barcode entry (supervisor-only)
+- `hmi:audit` — view audit trail
+
+### 11.4 On-Edge Deployment
+
+The HMI app runs as a **Progressive Web App (PWA)** to support:
+- **Offline resilience** — service worker caches UI; edge buffer queues decisions
+- **Low-latency** — served from the Jetson Orin or a local Nginx instance
+- **Installable** — warehouse managers can "install" to tablet home screen
+- **Touch-optimized** — large buttons, high-contrast for warehouse lighting
+
+---
+
+## 12. Estimated Resource Requirements
 
 | Component | Memory | Storage | Notes |
 |-----------|--------|---------|-------|
@@ -344,19 +740,34 @@ Client (Next.js)
 | NV-Embed-v2 | ~2GB VRAM | ~1.5GB disk | Embeddings |
 | Reranker | ~1GB VRAM | ~0.5GB disk | Reranking |
 | Vector DB (30M tokens) | ~8GB RAM | ~20GB disk | ~60k chunks × 4096-dim |
-| **Total (concurrent)** | **~63GB VRAM** | **~70GB disk** | Fits on DGX Station / 2×A100 |
+| **Central server total** | **~63GB VRAM** | **~70GB disk** | Fits on DGX Station / 2×A100 |
+| | | | |
+| **Jetson Orin AGX 64GB** | | | |
+| NanoOWL (TensorRT) | ~2GB VRAM | ~0.5GB disk | OWL-ViT encoder engine |
+| vLLM Marlin GPTQ | ~28GB VRAM | ~18GB disk | Qwen3.5-35B-A3B-GPTQ-Int4 |
+| PaddleOCR/ZBar | ~1GB VRAM | ~0.5GB disk | Barcode OCR |
+| MOQ server | ~512MB RAM | minimal | Media over QUIC relay |
+| Edge buffer | ~2GB RAM | ~10GB disk | Local queue + detection cache |
+| **Jetson total** | **~34GB VRAM** | **~29GB disk** | Fits within 64GB unified memory |
 
 ---
 
-## 10. Next Steps
+## 13. Next Steps
 
-1. **Validate hardware** — confirm client GPU/server inventory
+1. **Validate hardware** — confirm client GPU/server inventory + procure Jetson Orin AGX 64GB
 2. **Data audit** — sample 30M token dataset for format distribution (% PDF, % image, % structured)
 3. **POC** — stand up Nemotron-3 Nano + 1 expert (RAG) end-to-end
-4. **Benchmark** — compare OCR/detection model accuracy on client's actual shipping docs
-5. **NemoClaw setup** — install NemoClaw, define skills, configure privacy router
-6. **Auth scaffold** — Next.js + NextAuth.js with JWT flow
-7. **Full MoE rollout** — add remaining experts iteratively
-8. **Fine-tuning** — LoRA on Nemotron Nano with client's domain data
-9. **Load testing** — concurrent query benchmarks
-10. **Production hardening** — guardrails, monitoring, CI/CD
+4. **NanoOWL POC** — build TensorRT engine on Jetson, test barcode detection with sample conveyor footage
+5. **vLLM Marlin** — install pre-built wheel on Jetson, validate GPTQ-Int4 inference performance
+6. **Benchmark** — compare OCR/detection model accuracy on client's actual shipping docs
+7. **NemoClaw setup** — install NemoClaw, define skills (including edge-barcode, edge-ptz), configure privacy router
+8. **MOQ gateway** — stand up MOQ server, connect 3 cameras, test PTZ control loop
+9. **Auth scaffold** — Next.js + NextAuth.js with JWT flow + HMI scoped tokens
+10. **HMI prototype** — React PWA with live feed, verification panel, audit trail
+11. **Full MoE rollout** — add remaining experts iteratively
+12. **Confidence gating** — tune thresholds on real conveyor belt data
+13. **Sim-to-real calibration** — NanoOWL sim bridge → PTZ auto-tracking
+14. **Fine-tuning** — LoRA on Nemotron Nano with client's domain data
+15. **Integration testing** — end-to-end: camera → detection → barcode → RAG → frontend
+16. **Load testing** — concurrent query benchmarks + edge throughput
+17. **Production hardening** — guardrails, monitoring, CI/CD, security audit
